@@ -9,33 +9,48 @@ namespace GNSS_data {
 
     class frame {
         boost::dynamic_bitset<> data;
+        class bitset_field_accessor {
+            boost::dynamic_bitset<>& parent;
+            field f;
+        public:
+            explicit bitset_field_accessor(boost::dynamic_bitset<>& parent,
+                                           field f):
+                    parent(parent), f(f) {}
+            operator boost::dynamic_bitset<>() const {
+                boost::dynamic_bitset<> result(f.length);
+                for (size_t i = 0; i < f.length; ++i) {
+                    result[i] = parent[f.start + i];
+                }
+                return result;
+            }
+            operator unsigned long() const {
+                boost::dynamic_bitset<> result = *this;
+                return result.to_ulong();
+            }
+
+            bitset_field_accessor& operator=(const boost::dynamic_bitset<>& in)  {
+                assert (in.size() == f.length);
+                for (size_t i = 0; i < f.length; ++i) {
+                    parent[f.start + i] = in[i];
+                }
+                return *this;
+            }
+
+            bitset_field_accessor& operator=(const unsigned long in){
+                boost::dynamic_bitset<> b(f.length, in);
+                return (*this) = b;
+            }
+        };
     public:
         explicit frame(const int size) : data(size) {}
-
-        boost::dynamic_bitset<> operator[](field f) const {
-            boost::dynamic_bitset<> result(f.length);
-            for (size_t i = 0; i < f.length; ++i) {
-                result[i] = data[f.start + i];
-            }
-            return result;
+        bitset_field_accessor operator[](field f)  {
+            return bitset_field_accessor(data, f);
         }
-
-        void set(field f, const boost::dynamic_bitset<> &value) {
-            assert (f.length == value.size());
-            for (int i = 0; i < f.length; i++) {
-                data[f.start + i] = value[i];
-            }
-        }
-
-        void set(const field f, const unsigned long value) {
-            boost::dynamic_bitset<> b_value(f.length, value);
-            set(f, b_value);
-        }
-
     };
 
     class Glonass_line : public frame {
-        static const int len{85-8-1};
+        // 170 chips, 2 chips per bit, 8 hamming bits, 1 idle bit.
+        static const int len{170/2-8-1};
     public:
         Glonass_line() : frame(len) {}
     };
@@ -60,8 +75,7 @@ constexpr GNSS_data::field GNSS_data::Glonass_line2::Bn;
 int main() {
     using GNSS_data::Glonass_line2;
     Glonass_line2 g;
-    std::cout << Glonass_line2::Bn.start;
-    g.set(Glonass_line2::Bn, 3);
-    unsigned long x = g[GNSS_data::Glonass_line2::Bn].to_ulong();
-    std::cout << x;
+    g[g.Bn] = 3;
+    unsigned long Bn = g[g.Bn];
+    std::cout << Bn << std::endl;
 }
