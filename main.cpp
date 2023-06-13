@@ -9,12 +9,13 @@ namespace GNSS_data {
 
     class frame {
         boost::dynamic_bitset<> data;
-        class bitset_field_accessor {
+
+        class field_accessor {
             boost::dynamic_bitset<>& parent;
             field f;
         public:
-            explicit bitset_field_accessor(boost::dynamic_bitset<>& parent,
-                                           field f):
+            explicit field_accessor(boost::dynamic_bitset<>& parent,
+                                    field f):
                     parent(parent), f(f) {}
             operator boost::dynamic_bitset<>() const {
                 boost::dynamic_bitset<> result(f.length);
@@ -23,12 +24,15 @@ namespace GNSS_data {
                 }
                 return result;
             }
+            /**
+             * @throw std::overflow_error
+             */
             operator unsigned long() const {
                 boost::dynamic_bitset<> result = *this;
                 return result.to_ulong();
             }
 
-            bitset_field_accessor& operator=(const boost::dynamic_bitset<>& in)  {
+            field_accessor& operator=(const boost::dynamic_bitset<>& in)  {
                 assert (in.size() == f.length);
                 for (size_t i = 0; i < f.length; ++i) {
                     parent[f.start + i] = in[i];
@@ -36,15 +40,17 @@ namespace GNSS_data {
                 return *this;
             }
 
-            bitset_field_accessor& operator=(const unsigned long in){
+            field_accessor& operator=(const unsigned long in){
                 boost::dynamic_bitset<> b(f.length, in);
                 return (*this) = b;
             }
         };
     public:
         explicit frame(const int size) : data(size) {}
-        bitset_field_accessor operator[](field f)  {
-            return bitset_field_accessor(data, f);
+        std::map<const std::string, field> fields;
+        field_accessor operator[](const std::string& fieldName) {
+            assert (this->fields.count(fieldName));
+            return field_accessor(data, fields[fieldName]);
         }
     };
 
@@ -57,25 +63,25 @@ namespace GNSS_data {
 
     class Glonass_line2: public Glonass_line {
     public:
-        static constexpr field m{0,4};
-        static constexpr field Bn{4,3};
-        static constexpr field P2{7,1};
-        static constexpr field tb{8,7};
-        static constexpr field UNUSED1{15,5};
-        static constexpr field yn_dot{20, 24};
-        static constexpr field yn_dot_dot{44, 5};
-        static constexpr field yn{49, 27};
-//        static constexpr field KX{75, 8}; // Hamming code is not meant to be here
+        explicit Glonass_line2() {
+         this->fields.insert({
+                    {"m",  {0, 4}},
+                    {"Bn", {4, 3}},
+                    {"P2", {7, 1}},
+                    {"tb", {8,7}},
+                    {"UNUSED1", {15,5}},
+                    {"yn_dot", {20, 24}},
+                    {"yn_dot_dot", {44, 5}},
+                    {"yn", {49, 27}}
+            });
+        }
     };
 }
 
-#if __cplusplus < 201703L
-constexpr GNSS_data::field GNSS_data::Glonass_line2::Bn;
-#endif
 int main() {
     using GNSS_data::Glonass_line2;
     Glonass_line2 g;
-    g[g.Bn] = 3;
-    unsigned long Bn = g[g.Bn];
+    g["Bn"] = 3;
+    unsigned long Bn = g["Bn"];
     std::cout << Bn << std::endl;
 }
