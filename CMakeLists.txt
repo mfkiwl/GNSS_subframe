@@ -1,8 +1,5 @@
-cmake_minimum_required(VERSION 3.16)
 project(anontest)
+cmake_minimum_required(VERSION 3.25)
+include_directories(/usr/local/include)
 
-set(CMAKE_CXX_STANDARD 11)
-
-
-find_package(Boost REQUIRED)
-add_executable(anontest main.cpp)
+add_executable(gnss main.cpp)
