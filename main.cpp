@@ -2,100 +2,115 @@
 #include <cassert>
 #include <map>
 #include <boost/dynamic_bitset.hpp>
+#include <bitset>
 
 // GNSS_data namespace contains all the classes related to GNSS data handling
 namespace GNSS_data {
-    // A struct to hold field information
     struct Field {
-        size_t start, length;
+        const char *name;
+        const struct {
+            const size_t start, length;
+        } loc;
     };
-
-    typedef const std::map<std::string, Field> FieldMap;
-
-    // Frame class is the basic class to hold and manipulate a frame of GNSS data
-    class Frame {
-        boost::dynamic_bitset<> data;
-        FieldMap& fields;
-
-        // A helper class to provide access to individual fields within a frame
-        class FieldAccessor {
-            boost::dynamic_bitset<>& parent;
-            Field field;
-        public:
-            explicit FieldAccessor(boost::dynamic_bitset<>& parent, Field field) : parent(parent), field(field) {}
-
-            // This operator returns a part of the parent bitset representing the field
-            operator boost::dynamic_bitset<>() const {
-                boost::dynamic_bitset<> result(field.length);
-                for (size_t i = 0; i < field.length; ++i) {
-                    result[i] = parent[field.start + i];
-                }
-                return result;
-            }
-
-            // This operator allows casting to an unsigned long
-            operator unsigned long() const {
-                boost::dynamic_bitset<> result = *this;
-                return result.to_ulong();
-            }
-
-            // Overloaded assignment operator to handle assignment of a bitset to a field
-            FieldAccessor& operator=(const boost::dynamic_bitset<>& inputBitset) {
-                assert(inputBitset.size() == field.length);
-                for (size_t i = 0; i < field.length; ++i) {
-                    parent[field.start + i] = inputBitset[i];
-                }
-                return *this;
-            }
-
-            // Overloaded assignment operator to handle assignment of an unsigned long to a field
-            FieldAccessor& operator=(const unsigned long inputNumber) {
-                boost::dynamic_bitset<> bitset(field.length, inputNumber);
-                return (*this) = bitset;
-            }
+    namespace impl {
+        constexpr Field GlonassLine1[]{
+                {"m",           {0,  4}},
+                {"UNUSED1",     {4,  2}},
+                {"P1",          {6,  2}},
+                {"tk",          {8,  12}},
+                {"x_n_dot",     {20, 24}},
+                {"x_n_dot_dot", {44, 5}},
+                {"x_n",         {49, 27}},
         };
 
-    public:
-        explicit Frame(const uint size, const FieldMap& fields) : data{size}, fields{fields} {}
+        constexpr Field GlonassLine2[]{
+                {"m",          {0,  4}},
+                {"Bn",         {4,  3}},
+                {"P2",         {7,  1}},
+                {"tb",         {8,  7}},
+                {"UNUSED1",    {15, 5}},
+                {"yn_dot",     {20, 24}},
+                {"yn_dot_dot", {44, 5}},
+                {"yn",         {49, 27}}
+        };
 
-        // Overloaded [] operator to access individual fields by their names
-        FieldAccessor operator[](const std::string& fieldName) {
-            assert(this->fields.count(fieldName));
-            return FieldAccessor(data, fields.at(fieldName));
+        constexpr Field GlonassLine3[]{
+                {"m",           {0,  4}},
+                {"P3",          {4,  1}},
+                {"gamma_n",     {5,  11}},
+                {"UNUSED1",     {16, 1}},
+                {"p",           {17, 2}},
+                {"l_n",         {19, 1}},
+                {"z_n_dot",     {20, 24}},
+                {"z_n_dot_dot", {44, 5}},
+                {"z_n",         {49, 27}}
+        };
+
+        constexpr Field GlonassLine4[]{
+                {"m",           {0,  4}},
+                {"tau_n",       {4,  22}},
+                {"Delta_tau_n", {26, 5}},
+                {"E_n",         {31, 5}},
+                {"UNUSED1",     {36, 14}},
+                {"P4",          {50, 1}},
+                {"F_T",         {51, 4}},
+                {"UNUSED2",     {55, 3}},
+                {"N_T",         {58, 11}},
+                {"n",           {69, 5}},
+                {"M",           {74, 2}}
+        };
+        template<size_t N_fields>
+        consteval bool name_in_list(const Field (&in)[N_fields], const char* name) {
+            bool found{false};
+            for (auto field: in) {
+                if (strcmp(field.name, name) == 0 ){
+                    found = true;
+                }
+            }
+            return found;
         }
-    };
 
-    // GlonassLine is a specific type of Frame used in GLONASS systems
-    class GlonassLine : public Frame {
-        // 170 chips, 2 chips per bit, 8 hamming bits, 1 idle bit.
-        static const int len{170/2-8-1};
-    protected:
-        explicit GlonassLine(FieldMap& fields) : Frame(len, fields) {}
-    };
+        constexpr int strcmp(const char *a, const char *b) {
+            while(*a && (*a == *b)) {
+                ++a;
+                ++b;
+            }
+            return static_cast<unsigned char>(*a) - static_cast<unsigned char>(*b);
+        }
+        template<size_t N_fields, const Field (&fields)[N_fields]>
+        struct field_map {
+             const Field &operator[](const char *name)  const {
+                static_assert(name_in_list(fields, "m"));
+                //const bool found{false};
+                for (int i = 0; i < N_fields; i++) {
+                    if (strcmp(fields[i].name, name) == 0) {
+                        return fields[i];
+                    }
+                }
+                throw std::out_of_range(name);
+            }
+        };
+        typedef field_map<sizeof(GlonassLine1)/sizeof(GlonassLine1[0]), GlonassLine1> GlonassLine1Map;
 
-    const std::map<std::string, Field> GlonassLine2Fields{
-            {"m",  {0, 4}},
-            {"Bn", {4, 3}},
-            {"P2", {7, 1}},
-            {"tb", {8,7}},
-            {"UNUSED1", {15,5}},
-            {"yn_dot", {20, 24}},
-            {"yn_dot_dot", {44, 5}},
-            {"yn", {49, 27}}
-    };
+        template<size_t N_bits, size_t N_fields, const Field (&fields)[N_fields]>
+        struct Subframe {
+            std::bitset<N_bits> data;
+            bool get() {
+                return data[0];
+            }
+        };
+        typedef Subframe<76, sizeof(GlonassLine1)/sizeof(GlonassLine1[0]), GlonassLine1> Glonass_line_1;
+    }
+    using impl::Glonass_line_1;
+    typedef impl::field_map<sizeof(impl::GlonassLine1)/sizeof(impl::GlonassLine1[0]), impl::GlonassLine1> Glonass_line_1_map;
 
-    // GlonassLine2 is a specific type of GlonassLine with a specific set of fields
-    class GlonassLine2: public GlonassLine {
-    public:
-        explicit GlonassLine2(): GlonassLine(GlonassLine2Fields) {}
-    };
 }
-
 int main() {
-    using GNSS_data::GlonassLine2;
-    GlonassLine2 g;
-    g["Bn"] = 3;
-    unsigned long Bn = g["Bn"];
-    g["does not exist"] = 3;
-    std::cout << Bn << std::endl;
+
+    //GNSS_data::Glonass_line_1 b;
+    GNSS_data::Glonass_line_1_map m;
+    std::cout << m["m"].loc.length << std::endl;
+//    b.data[0] = 1;
+//    std::cout << b.get() << std::endl;
+
 }
