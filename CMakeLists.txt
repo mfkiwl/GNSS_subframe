@@ -1,5 +1,5 @@
 project(anontest)
 cmake_minimum_required(VERSION 3.25)
 include_directories(/usr/local/include)
-
+set(CMAKE_CXX_STANDARD 23)
 add_executable(gnss main.cpp)

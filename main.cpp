@@ -1,7 +1,6 @@
-#include <iostream>
 #include <cassert>
 #include <boost/dynamic_bitset.hpp>
-#include <bitset>
+#include <span>
 
 // GNSS_data namespace contains all the classes related to GNSS data handling
 namespace GNSS_data {
@@ -12,7 +11,38 @@ namespace GNSS_data {
         } loc;
     };
     namespace impl {
-        constexpr Field GlonassLine1[]{
+    class span: public std::span<const Field> {
+        /**
+         * An expansion of std::span to support constexpr operator[].
+         */
+    public:
+        template <size_t _ArrayExtent>
+        constexpr span(const Field (&f)[_ArrayExtent]):
+        std::span<const Field>(f)
+        {}
+
+
+        constexpr const Field& operator[](const char* name) const {
+            for (auto& f: *this) {
+                if (span::strcmp(f.name, name)==0) {
+                    return f;
+                }
+            }
+            throw std::out_of_range(name);
+        }
+
+    private:
+        constexpr static int strcmp(const char* a, const char *b) {
+            while(*a && (*a == *b)) {
+                a++;
+                b++;
+            }
+            return static_cast<unsigned char>(*a) - static_cast<unsigned char>(*b);
+        }
+
+    };
+
+        constexpr Field GlonassLine1_arr[]{
                 {"m",           {0,  4}},
                 {"UNUSED1",     {4,  2}},
                 {"P1",          {6,  2}},
@@ -22,7 +52,9 @@ namespace GNSS_data {
                 {"x_n",         {49, 27}},
         };
 
-        constexpr Field GlonassLine2[]{
+        constexpr span GlonassLine1{GlonassLine1_arr};
+
+        constexpr Field GlonassLine2_arr[]{
                 {"m",          {0,  4}},
                 {"Bn",         {4,  3}},
                 {"P2",         {7,  1}},
@@ -33,7 +65,9 @@ namespace GNSS_data {
                 {"yn",         {49, 27}}
         };
 
-        constexpr Field GlonassLine3[]{
+        constexpr span GlonassLine2{GlonassLine2_arr};
+
+        constexpr Field GlonassLine3_arr[]{
                 {"m",           {0,  4}},
                 {"P3",          {4,  1}},
                 {"gamma_n",     {5,  11}},
@@ -45,7 +79,9 @@ namespace GNSS_data {
                 {"z_n",         {49, 27}}
         };
 
-        constexpr Field GlonassLine4[]{
+        constexpr span GlonassLine3{GlonassLine3_arr};
+
+        constexpr Field GlonassLine4_arr[]{
                 {"m",           {0,  4}},
                 {"tau_n",       {4,  22}},
                 {"Delta_tau_n", {26, 5}},
@@ -59,34 +95,21 @@ namespace GNSS_data {
                 {"M",           {74, 2}}
         };
 
-        static constexpr int strcmp(const char *a, const char *b) {
-            while (*a && (*a == *b)) {
-                ++a;
-                ++b;
-            }
-            return static_cast<unsigned char>(*a) - static_cast<unsigned char>(*b);
-        }
+        constexpr span GlonassLine4{GlonassLine4_arr};
 
-        template<size_t N_fields>
-        static constexpr const Field& get_field(const Field (&in)[N_fields], const char *name) {
-            for (auto& field: in) {
-                if (strcmp(field.name, name) == 0) {
-                    return field;
-                }
-            }
-            throw std::out_of_range(name);
-        }
 
-        template<size_t N_bits, size_t N_fields, const Field(& fields)[N_fields]>
         class Subframe {
         private:
-            // A helper class to provide access to individual fields within a frame
+            boost::dynamic_bitset<> data;
+            virtual constexpr span get_fields()=0;
             class FieldAccessor {
-                std::bitset<N_bits>& parent;
+                boost::dynamic_bitset<>& parent;
             public:
                 const Field& field;
-                explicit constexpr FieldAccessor(std::bitset<N_bits>& parent, const Field& field) : parent(parent),
-                                                                                          field(field) {}
+                explicit constexpr FieldAccessor(boost::dynamic_bitset<>& parent, const Field& field) :
+                    parent(parent),
+                    field(field) {
+                }
 
                 // This operator returns a part of the parent bitset representing the field
                 operator boost::dynamic_bitset<>() const {
@@ -119,26 +142,19 @@ namespace GNSS_data {
             };
         public:
 
-            FieldAccessor operator[](const char* fieldName) {
-                return FieldAccessor(data, get_field(fields,fieldName));
-            }
+            constexpr FieldAccessor operator[](const char* fieldName) {
 
-            // The name has to be externally linked to be used as a template parameter.
-            template<const char* name>
-            FieldAccessor get() {
-                return FieldAccessor(data, get_field(fields, name));
+                return FieldAccessor(data,
+                                     get_fields()[fieldName]);
 
             }
 
-            template<uint field_index>
-            FieldAccessor get() {
-                static_assert(field_index<N_fields);
-                return FieldAccessor(data, fields[field_index]);
-            }
-            std::bitset<N_bits> data;
+
             struct iterator {
                 size_t i;
-                std::bitset<N_bits>& parent;
+                boost::dynamic_bitset<>& parent;
+                std::span<const Field> fields;
+
                 FieldAccessor operator*() {
                     return FieldAccessor(parent, fields[i]);
                 }
@@ -154,37 +170,45 @@ namespace GNSS_data {
 
         public:
             iterator begin() {
-                return iterator{0, data};
+
+                return iterator{0, data, get_fields()};
             }
 
             iterator end() {
-                return iterator{N_fields, data};
+                return iterator{get_fields().size(), data, get_fields()};
             }
+            Subframe(size_t size): data(size) {}
         };
     }
+    class GlonassLine: public impl::Subframe {
+    public:
+        GlonassLine(): impl::Subframe{76} {}
+    };
 
-    typedef impl::Subframe<76, sizeof(impl::GlonassLine1)/sizeof(impl::GlonassLine1[0]), impl::GlonassLine1> GlonassLine1_subframe;
-    typedef impl::Subframe<76, sizeof(impl::GlonassLine2)/sizeof(impl::GlonassLine2[0]), impl::GlonassLine2> GlonassLine2_subframe;
+    class GlonassLine1: public GlonassLine {
+        constexpr impl::span get_fields() override {
+            return impl::GlonassLine1;
+        }
+    };
 }
-int main() {
-    GNSS_data::GlonassLine1_subframe gs;
+
+#include <iostream>
+void test() {
+    constexpr auto m  { GNSS_data::impl::GlonassLine1["m"]};
+    GNSS_data::GlonassLine1 gs;
     gs["tk"] = 3;
 
-    auto v= gs.get<6>();
-    v = 23;
-    std::cout << gs["m"];
+
+    gs["m"] = 4;
+//    for (auto i: {"tk", "m"}) {
+//        std::cout << i << ": " << gs[i] << std::endl;
+//    }
+
     for (auto i: gs) {
         std::cout << i.field.name << ": " << i << "; ";
     }
+}
 
-    auto p = std::tuple{
-            GNSS_data::GlonassLine1_subframe(),
-            GNSS_data::GlonassLine2_subframe(),
-    };
-    //GNSS_data::Glonass_line_1 b;
-
-
-//    b.data[0] = 1;
-//    std::cout << b.get() << std::endl;
-
+int main() {
+    test();
 }
