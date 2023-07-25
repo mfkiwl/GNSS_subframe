@@ -2,45 +2,42 @@
 #include <boost/dynamic_bitset.hpp>
 #include <span>
 
-// GNSS_data namespace contains all the classes related to GNSS data handling
+// Namespace for GNSS data handling
 namespace GNSS_data {
     struct Field {
-        const char *name;
+        const char *fieldName;
         const struct {
-            const size_t start, length;
-        } loc;
+            const size_t startPosition, length;
+        } location;
     };
-    namespace impl {
-    class span: public std::span<const Field> {
-        /**
-         * An expansion of std::span to support constexpr operator[].
-         */
-    public:
-        template <size_t _ArrayExtent>
-        constexpr span(const Field (&f)[_ArrayExtent]):
-        std::span<const Field>(f)
-        {}
 
+    namespace implementation {
+        // Class to expand std::span to support constexpr operator[]
+        class span: public std::span<const Field> {
+        public:
+            template <size_t ArraySize>
+            constexpr span(const Field (&fieldsArray)[ArraySize]) :
+                    std::span<const Field>(fieldsArray) {}
 
-        constexpr const Field& operator[](const char* name) const {
-            for (auto& f: *this) {
-                if (span::strcmp(f.name, name)==0) {
-                    return f;
+            // Operator[] to return field with the given name
+            constexpr const Field& operator[](const char* name) const {
+                for (auto& field: *this) {
+                    if (strcmp(field.fieldName, name)==0) {
+                        return field;
+                    }
                 }
+                throw std::out_of_range(name);
             }
-            throw std::out_of_range(name);
-        }
 
-    private:
-        constexpr static int strcmp(const char* a, const char *b) {
-            while(*a && (*a == *b)) {
-                a++;
-                b++;
+        private:
+            constexpr static int strcmp(const char* a, const char *b) {
+                while(*a && (*a == *b)) {
+                    a++;
+                    b++;
+                }
+                return static_cast<unsigned char>(*a) - static_cast<unsigned char>(*b);
             }
-            return static_cast<unsigned char>(*a) - static_cast<unsigned char>(*b);
-        }
-
-    };
+        };
 
         constexpr Field GlonassLine1_arr[]{
                 {"m",           {0,  4}},
@@ -96,75 +93,70 @@ namespace GNSS_data {
         };
 
         constexpr span GlonassLine4{GlonassLine4_arr};
-
-
+        // A class representing a Subframe in GNSS data
         class Subframe {
         private:
             boost::dynamic_bitset<> data;
-            virtual constexpr span get_fields()=0;
+            virtual constexpr span get_fields() = 0;
+
+            // FieldAccessor class to manage individual fields within the bitset
             class FieldAccessor {
-                boost::dynamic_bitset<>& parent;
+                boost::dynamic_bitset<>& parentBitset;
             public:
                 const Field& field;
                 explicit constexpr FieldAccessor(boost::dynamic_bitset<>& parent, const Field& field) :
-                    parent(parent),
-                    field(field) {
-                }
+                        parentBitset(parent), field(field) {}
 
-                // This operator returns a part of the parent bitset representing the field
+                // Returns a part of the parent bitset representing the field
                 operator boost::dynamic_bitset<>() const {
-                    boost::dynamic_bitset<> result(field.loc.length);
-                    for (size_t i = 0; i < field.loc.length; ++i) {
-                        result[i] = parent[field.loc.start + i];
+                    boost::dynamic_bitset<> result(field.location.length);
+                    for (size_t i = 0; i < field.location.length; ++i) {
+                        result[i] = parentBitset[field.location.startPosition + i];
                     }
                     return result;
                 }
 
-                // This operator allows casting to an unsigned long
+                // Allows casting to an unsigned long
                 operator unsigned long() const {
                     return static_cast<boost::dynamic_bitset<>>(*this).to_ulong();
                 }
 
                 // Overloaded assignment operator to handle assignment of a bitset to a field
                 FieldAccessor &operator=(const boost::dynamic_bitset<>& inputBitset) {
-                    assert(inputBitset.size() == field.loc.length);
-                    for (size_t i = 0; i < field.loc.length; ++i) {
-                        parent[field.loc.start + i] = inputBitset[i];
+                    assert(inputBitset.size() == field.location.length);
+                    for (size_t i = 0; i < field.location.length; ++i) {
+                        parentBitset[field.location.startPosition + i] = inputBitset[i];
                     }
                     return *this;
                 }
 
                 // Overloaded assignment operator to handle assignment of an unsigned long to a field
                 FieldAccessor &operator=(const unsigned long inputNumber) {
-                    boost::dynamic_bitset<> bitset(field.loc.length, inputNumber);
+                    boost::dynamic_bitset<> bitset(field.location.length, inputNumber);
                     return (*this) = bitset;
                 }
             };
         public:
-
             constexpr FieldAccessor operator[](const char* fieldName) {
-
-                return FieldAccessor(data,
-                                     get_fields()[fieldName]);
-
+                return FieldAccessor(data, get_fields()[fieldName]);
             }
 
-
+            // Iterator class for iterating through fields in the subframe
             struct iterator {
-                size_t i;
-                boost::dynamic_bitset<>& parent;
+                size_t index;
+                boost::dynamic_bitset<>& parentBitset;
                 std::span<const Field> fields;
 
                 FieldAccessor operator*() {
-                    return FieldAccessor(parent, fields[i]);
+                    return FieldAccessor(parentBitset, fields[index]);
                 }
                 iterator& operator++() {
-                    i++;
+                    index++;
                     return *this;
                 }
 
                 bool operator!=(const iterator& other) const {
-                    return this->i != other.i;
+                    return this->index != other.index;
                 }
             };
 
@@ -179,22 +171,24 @@ namespace GNSS_data {
             }
             Subframe(size_t size): data(size) {}
         };
-    }
-    class GlonassLine: public impl::Subframe {
-    public:
-        GlonassLine(): impl::Subframe{76} {}
-    };
+        class GlonassLine: public implementation::Subframe {
+        public:
+            GlonassLine(): implementation::Subframe{76} {}
+        };
 
-    class GlonassLine1: public GlonassLine {
-        constexpr impl::span get_fields() override {
-            return impl::GlonassLine1;
+
+        // Similar for other Glonass lines...
+    }
+
+    class GlonassLine1: public implementation::GlonassLine {
+        constexpr implementation::span get_fields() override {
+            return implementation::GlonassLine1;
         }
     };
 }
-
 #include <iostream>
 void test() {
-    constexpr auto m  { GNSS_data::impl::GlonassLine1["m"]};
+    constexpr auto m  { GNSS_data::implementation::GlonassLine1["m"]};
     GNSS_data::GlonassLine1 gs;
     gs["tk"] = 3;
 
@@ -205,10 +199,9 @@ void test() {
     }
 
     for (auto i: gs) {
-        std::cout << i.field.name << ": " << i << "; ";
+        std::cout << i.field.fieldName << ": " << i << "; ";
     }
 }
-
 int main() {
     test();
 }
