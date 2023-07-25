@@ -200,9 +200,9 @@ void test() {
 
 
     gs["m"] = 4;
-//    for (auto i: {"tk", "m"}) {
-//        std::cout << i << ": " << gs[i] << std::endl;
-//    }
+    for (auto i: {"tk", "m"}) {
+        std::cout << i << ": " << gs[i] << std::endl;
+    }
 
     for (auto i: gs) {
         std::cout << i.field.name << ": " << i << "; ";
